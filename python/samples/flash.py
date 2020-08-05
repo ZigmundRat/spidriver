@@ -39,7 +39,7 @@ if __name__ == '__main__':
     def command(b):
         s.unsel()
         s.sel()
-        s.write(b)
+        s.writeread(b)
 
     def idcode():
         command([0x9f])
@@ -48,10 +48,14 @@ if __name__ == '__main__':
     def write_enable():
         command([0x06])
 
+    def status():
+        command([0x05])
+        (r,) = struct.unpack("B", s.read(1))
+        return r
+
     def wait_ready():
         while True:
-            command([0x05])
-            (r,) = struct.unpack("B", s.read(1))
+            r = status()
             if (r & 1) == 0:
                 break
 
@@ -62,7 +66,7 @@ if __name__ == '__main__':
         # print('page_program', a)
         write_enable()
         command([0x02] + addr24(a))
-        s.write(b256)
+        s.writeread(b256)
         wait_ready()
 
     def erase_sector(a):
@@ -79,18 +83,23 @@ if __name__ == '__main__':
         print("Got JEDEC ID: %02x %02x %02x" % ids)
         if size > 0:
             break
-        if ids[0] not in (0x00, 0xff) and (8 <= ids[2] < 22):
+        if ids[0] not in (0x00, 0xff) and (1 <= ids[2] < 22):
             break
     if size == 0:
         size = 1 << ids[2]
     print("Flash size is %d bytes" % size)
 
+    print("Status is %02x" % status())
+
     if '-r' in optdict:
         read(0)
         chunk = 8 * 1024
+        size,chunk = 128,128
         with open(optdict['-r'], "wb") as f:
             for a in range(0, size, chunk):
-                f.write(s.read(chunk))
+                d = s.read(chunk)
+                print(d)
+                f.write(d)
                 print("%d/%d KBytes" % (a / 1024, size / 1024))
     if '-w' in optdict:
         write_enable()
@@ -98,8 +107,13 @@ if __name__ == '__main__':
         wait_ready()
         with open(optdict['-w'], "rb") as f:
             for a in range(0, size, 256):
-                page_program(a, f.read(256))
+                d = f.read(256)
+                if len(d) == 0:
+                    break
+                page_program(a, d)
                 print("%d/%d KBytes" % (a / 1024, size / 1024))
+    write_enable()
+
     s.unsel()
     s.seta(1)
     s.detach()
